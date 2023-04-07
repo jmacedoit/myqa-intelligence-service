@@ -1,0 +1,24 @@
+[tool.poetry]
+name = "myqa-intelligence-service"
+version = "0.1.0"
+description = "This service provides myqa intelligence layer."
+authors = ["João Macedo <j.macedo.it@gmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.9"
+langchain = "^0.0.127"
+unstructured = "^0.5.8"
+openai = "^0.27.2"
+chromadb = "^0.3.16"
+pymilvus = "^2.2.4"
+Flask = "^2.2.3"
+dynaconf = "^3.1.12"
+
+
+[tool.poetry.group.dev.dependencies]
+autopep8 = "^2.0.2"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

@@ -1,0 +1,24 @@
+{
+    "default": {
+        "server": {
+            "port": 7000
+        },
+        "open_ai": {
+            "api_key": "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"
+        },
+        "database": {
+            "resource_name_size": 128,
+            "resource_id_size": 64,
+            "data_size": 1024,
+            "embedding_size": 1536
+        },
+        "chunking": {
+            "chunk_size": 1024,
+            "chunk_overlap": 256
+        },
+        "milvus": {
+            "host": "localhost",
+            "port": 19530
+        }
+    }
+}
