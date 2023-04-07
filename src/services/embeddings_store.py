@@ -1,0 +1,118 @@
+
+from typing import List, TypedDict, cast
+from pymilvus import (
+    SearchResult,
+    connections,
+    utility,
+    FieldSchema, CollectionSchema, DataType,
+    Collection,
+)
+from config import settings
+
+ID_FIELD = "id"
+RESOURCE_NAME_FIELD = "resource_name"
+RESOURCE_ID_FIELD = "resource_id"
+DATA_FIELD = "data"
+EMBEDDINGS_FIELD = "embeddings"
+
+
+class ResourceChunkInfo(TypedDict):
+    resource_name: str
+    resource_id: str
+    data: str
+    embeddings: List[float]
+
+
+class CollectionEmbeddingsStore:
+    def __init__(self, collection_name: str, host: str = settings.milvus.host, port: str = settings.milvus.port):
+        self.collection_name = collection_name
+        self.host = host
+        self.port = port
+        self.connection_alias = "default"
+        self.collection: Collection
+
+    def setup(self, create_index: bool = False):
+        fields = [
+            FieldSchema(name=ID_FIELD, dtype=DataType.INT64,
+                        is_primary=True, auto_id=True),
+            FieldSchema(name=RESOURCE_NAME_FIELD,
+                        dtype=DataType.VARCHAR, max_length=settings.database.resource_name_size),
+            FieldSchema(name=RESOURCE_ID_FIELD,
+                        dtype=DataType.VARCHAR, max_length=settings.database.resource_id_size),
+            FieldSchema(name=DATA_FIELD,
+                        dtype=DataType.VARCHAR, max_length=settings.database.data_size),
+            FieldSchema(name=EMBEDDINGS_FIELD,
+                        dtype=DataType.FLOAT_VECTOR, dim=settings.database.embedding_size)
+        ]
+
+        resource_chunk_schema = CollectionSchema(
+            fields, "Schema for holding resource chunk embeddings")
+
+        self.collection = Collection(self.collection_name,
+                                     resource_chunk_schema, consistency_level="Strong")
+
+        if create_index:
+            try:
+                index = {
+                    "index_type": "IVF_FLAT",
+                    "metric_type": "L2",
+                    "params": {"nlist": 128},
+                }
+
+                self.collection.create_index(EMBEDDINGS_FIELD, index)
+            except:
+                pass
+            finally:
+                pass
+
+    def drop_collection(self):
+        utility.drop_collection(self.collection_name)
+
+    def delete_resource_chunks(self, resource_id: str):
+        self.collection.load()  # type: ignore
+
+        search_param = {
+            "anns_field": "embeddings",
+            "data": [[0 for i in range(settings.database.embedding_size)]],
+            "limit": 16384,
+            "param": {"metric_type": "L2", "params": {"nprobe": 10}},
+            "expr": f"{RESOURCE_ID_FIELD} == \"{resource_id}\"",
+        }
+
+        result = cast(SearchResult, self.collection.search(**search_param))
+
+        self.collection.delete(
+            f"{ID_FIELD} in [{','.join([str(r.id) for r in result[0]])}]")  # type: ignore
+
+    def insert_resource_chunks(self, entities: List[ResourceChunkInfo]):
+        if self.collection is None:
+            raise ValueError(
+                "Collection not created.")
+
+        formatted_entities = [
+            [e[RESOURCE_NAME_FIELD] for e in entities],
+            [e[RESOURCE_ID_FIELD] for e in entities],
+            [e[DATA_FIELD] for e in entities],
+            [e[EMBEDDINGS_FIELD] for e in entities]
+        ]
+
+        self.collection.insert(formatted_entities)
+
+        self.collection.flush()
+
+    def search_similar_chunks(self, query_vectors: List[float], limit: int = 5) -> List[tuple[ResourceChunkInfo, float]]:
+        self.collection.load()
+
+        if self.collection is None:
+            raise ValueError(
+                "Collection not created. Please call create_collection() method first.")
+
+        result = self.collection.search([query_vectors], "embeddings", {"metric_type": "L2", "params": {
+                                        "nprobe": 10}}, limit=limit, output_fields=[ID_FIELD, DATA_FIELD, RESOURCE_ID_FIELD, RESOURCE_NAME_FIELD])
+        result = cast(SearchResult, result)
+
+        return [(cast(ResourceChunkInfo, {
+            RESOURCE_NAME_FIELD: r.entity.resource_name,
+            RESOURCE_ID_FIELD: r.entity.resource_id,
+            DATA_FIELD: r.entity.data,
+        }), 1 - cast(float, r.distance)) for r in result[0]]
