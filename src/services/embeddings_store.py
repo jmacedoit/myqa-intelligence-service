@@ -2,7 +2,6 @@
 from typing import List, TypedDict, cast
 from pymilvus import (
     SearchResult,
-    connections,
     utility,
     FieldSchema, CollectionSchema, DataType,
     Collection,
@@ -25,11 +24,15 @@ class ResourceChunkInfo(TypedDict):
 
 class CollectionEmbeddingsStore:
     def __init__(self, collection_name: str, host: str = settings.milvus.host, port: str = settings.milvus.port):
-        self.collection_name = collection_name
+        self.collection_name = self.make_guid_compatible(collection_name)
         self.host = host
         self.port = port
         self.connection_alias = "default"
         self.collection: Collection
+
+
+    def make_guid_compatible(self, collection_name: str) -> str:
+        return "_" + collection_name.replace("-", "_")
 
     def setup(self, create_index: bool = False):
         fields = [
