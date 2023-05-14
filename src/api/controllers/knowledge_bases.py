@@ -1,4 +1,5 @@
 
+import json
 import os
 import tempfile
 
@@ -44,8 +45,16 @@ def assimilate_resource(knowledge_base_id: str, resource_id: str):
     embeddings_store = CollectionEmbeddingsStore(collection_name=knowledge_base_id)
 
     rows = [
-        ResourceChunkInfo(**{'resource_name': resource_name, 'data': texts[i].page_content,
-                     'embeddings': embeddings_result[i], 'resource_id': resource_id}) for i in range(len(texts))
+        ResourceChunkInfo(
+            resource_name=str(resource_name),
+            data=texts[i].page_content,
+            embeddings=embeddings_result[i],
+            resource_id=resource_id,
+            payload=json.dumps({
+                'chunk_number': i,
+                'resource_mimetype': file.mimetype
+            })
+        ) for i in range(len(texts))
     ]
 
     embeddings_store.setup(True) 
