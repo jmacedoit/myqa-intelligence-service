@@ -8,7 +8,7 @@ readme = "README.md"
 [tool.poetry.dependencies]
 python = "^3.9"
 langchain = "^0.0.127"
-unstructured = "^0.5.8"
+unstructured = {extras = ["local-inference"], version = "^0.6.5"}
 openai = "^0.27.2"
 chromadb = "^0.3.16"
 pymilvus = "^2.2.4"
