@@ -13,6 +13,7 @@ RESOURCE_NAME_FIELD = "resource_name"
 RESOURCE_ID_FIELD = "resource_id"
 DATA_FIELD = "data"
 EMBEDDINGS_FIELD = "embeddings"
+PAYLOAD_FIELD = "payload"
 
 
 class ResourceChunkInfo(TypedDict):
@@ -20,6 +21,7 @@ class ResourceChunkInfo(TypedDict):
     resource_id: str
     data: str
     embeddings: List[float]
+    payload: str
 
 
 class CollectionEmbeddingsStore:
@@ -36,23 +38,17 @@ class CollectionEmbeddingsStore:
 
     def setup(self, create_index: bool = False):
         fields = [
-            FieldSchema(name=ID_FIELD, dtype=DataType.INT64,
-                        is_primary=True, auto_id=True),
-            FieldSchema(name=RESOURCE_NAME_FIELD,
-                        dtype=DataType.VARCHAR, max_length=settings.database.resource_name_size),
-            FieldSchema(name=RESOURCE_ID_FIELD,
-                        dtype=DataType.VARCHAR, max_length=settings.database.resource_id_size),
-            FieldSchema(name=DATA_FIELD,
-                        dtype=DataType.VARCHAR, max_length=settings.database.data_size),
-            FieldSchema(name=EMBEDDINGS_FIELD,
-                        dtype=DataType.FLOAT_VECTOR, dim=settings.database.embedding_size)
+            FieldSchema(name=ID_FIELD, dtype=DataType.INT64, is_primary=True, auto_id=True),
+            FieldSchema(name=RESOURCE_NAME_FIELD, dtype=DataType.VARCHAR, max_length=settings.database.resource_name_size),
+            FieldSchema(name=RESOURCE_ID_FIELD, dtype=DataType.VARCHAR, max_length=settings.database.resource_id_size),
+            FieldSchema(name=DATA_FIELD, dtype=DataType.VARCHAR, max_length=settings.database.data_size),
+            FieldSchema(name=EMBEDDINGS_FIELD, dtype=DataType.FLOAT_VECTOR, dim=settings.database.embedding_size),
+            FieldSchema(name=PAYLOAD_FIELD, dtype=DataType.VARCHAR, max_length=settings.database.payload_size)
         ]
 
-        resource_chunk_schema = CollectionSchema(
-            fields, "Schema for holding resource chunk embeddings")
+        resource_chunk_schema = CollectionSchema(fields, "Schema for holding resource chunk embeddings")
 
-        self.collection = Collection(self.collection_name,
-                                     resource_chunk_schema, consistency_level="Strong")
+        self.collection = Collection(self.collection_name, resource_chunk_schema, consistency_level="Strong")
 
         if create_index:
             try:
@@ -74,29 +70,25 @@ class CollectionEmbeddingsStore:
     def delete_resource_chunks(self, resource_id: str):
         self.collection.load()  # type: ignore
 
-        search_param = {
-            "anns_field": "embeddings",
-            "data": [[0 for i in range(settings.database.embedding_size)]],
-            "limit": 16384,
-            "param": {"metric_type": "L2", "params": {"nprobe": 10}},
-            "expr": f"{RESOURCE_ID_FIELD} == \"{resource_id}\"",
-        }
+        result = self.collection.query(
+            expr=f"{RESOURCE_ID_FIELD} == \"{resource_id}\"",
+            output_fields=[ID_FIELD, RESOURCE_ID_FIELD]
+        )
 
-        result = cast(SearchResult, self.collection.search(**search_param))
+        ids_to_delete = [r[ID_FIELD] for r in result];
 
-        self.collection.delete(
-            f"{ID_FIELD} in [{','.join([str(r.id) for r in result[0]])}]")  # type: ignore
+        self.collection.delete(f"{ID_FIELD} in [{','.join([str(id) for id in ids_to_delete])}]")  # type: ignore
 
     def insert_resource_chunks(self, entities: List[ResourceChunkInfo]):
         if self.collection is None:
-            raise ValueError(
-                "Collection not created.")
+            raise ValueError("Collection not created.")
 
         formatted_entities = [
             [e[RESOURCE_NAME_FIELD] for e in entities],
             [e[RESOURCE_ID_FIELD] for e in entities],
             [e[DATA_FIELD] for e in entities],
-            [e[EMBEDDINGS_FIELD] for e in entities]
+            [e[EMBEDDINGS_FIELD] for e in entities],
+            [e[PAYLOAD_FIELD] for e in entities],
         ]
 
         self.collection.insert(formatted_entities)
@@ -110,12 +102,19 @@ class CollectionEmbeddingsStore:
             raise ValueError(
                 "Collection not created. Please call create_collection() method first.")
 
-        result = self.collection.search([query_vectors], "embeddings", {"metric_type": "L2", "params": {
-                                        "nprobe": 10}}, limit=limit, output_fields=[ID_FIELD, DATA_FIELD, RESOURCE_ID_FIELD, RESOURCE_NAME_FIELD])
+        result = self.collection.search(
+            [query_vectors],
+            "embeddings",
+            {"metric_type": "L2", "params": { "nprobe": 10 }},
+            limit=limit,
+            output_fields=[ID_FIELD, DATA_FIELD, RESOURCE_ID_FIELD, RESOURCE_NAME_FIELD, PAYLOAD_FIELD]
+        )
+
         result = cast(SearchResult, result)
 
         return [(cast(ResourceChunkInfo, {
             RESOURCE_NAME_FIELD: r.entity.resource_name,
             RESOURCE_ID_FIELD: r.entity.resource_id,
             DATA_FIELD: r.entity.data,
+            PAYLOAD_FIELD: r.entity.payload
         }), 1 - cast(float, r.distance)) for r in result[0]]
