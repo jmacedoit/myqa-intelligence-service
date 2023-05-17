@@ -1,6 +1,7 @@
 
 import json
-from typing import List
+import threading
+from typing import Any, List
 from flask import jsonify, request
 from flask import Blueprint
 
@@ -16,6 +17,7 @@ def add_answer_request():
     request_data = request.get_json()
     knowledge_base_id = request_data['knowledgeBaseId']
     question = request_data['question']
+    reference: str = request_data['reference']
 
     embeddings_store = CollectionEmbeddingsStore(collection_name=knowledge_base_id)
     embeddings_store.setup() 
@@ -27,16 +29,13 @@ def add_answer_request():
     similar_chunks_with_similarity = embeddings_store.search_similar_chunks(
         question_embeddings[0])
     
-    prompt = build_qa_llm_prompt(question, list(
-        map(lambda x: x[0], similar_chunks_with_similarity)))
+    prompt = build_qa_llm_prompt(question, list(map(lambda x: x[0], similar_chunks_with_similarity)))
 
     llm = LlmProvider();
-    response = llm.prompt(prompt)
-
-    print(len(prompt))
+    response = llm.prompt(prompt, reference)
 
     return jsonify({
-        'answer': response.generations[0][0].text
+        'answer': response
     }), 200
 
 def order_and_sew_info_chunks(info_chunks: List[ResourceChunkInfo]) -> List[ResourceChunkInfo]:
