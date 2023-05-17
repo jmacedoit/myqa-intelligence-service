@@ -7,13 +7,16 @@ readme = "README.md"
 
 [tool.poetry.dependencies]
 python = "^3.9"
-langchain = "^0.0.127"
 unstructured = {extras = ["local-inference"], version = "^0.6.5"}
 openai = "^0.27.2"
 chromadb = "^0.3.16"
 pymilvus = "^2.2.4"
-Flask = "^2.2.3"
+langchain = "^0.0.170"
+tiktoken = "^0.4.0"
+Flask-SocketIO = "^5.3.4"
 dynaconf = "^3.1.12"
+Flask = "^2.3.2"
+gevent-websocket = "^0.10.1"
 
 
 [tool.poetry.group.dev.dependencies]
