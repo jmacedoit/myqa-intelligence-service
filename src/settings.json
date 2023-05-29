@@ -6,17 +6,18 @@
         "database": {
             "resource_name_size": 128,
             "resource_id_size": 64,
-            "data_size": 1024,
+            "data_size": 2048,
             "embedding_size": 1536,
             "payload_size": 1024
         },
         "chunking": {
-            "chunk_size": 1024,
+            "chunk_size": 2048,
             "chunk_overlap": 256
         },
         "milvus": {
             "host": "localhost",
             "port": 19530
-        }
+        },
+        "log_level": 10
     }
 }

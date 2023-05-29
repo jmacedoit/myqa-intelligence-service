@@ -1,13 +1,12 @@
 
 import json
-import threading
-from typing import Any, List
+from collections import defaultdict
+
 from flask import jsonify, request
 from flask import Blueprint
 
 from services.embeddings_calculator import EmbeddingsCalculator
 from services.embeddings_store import CollectionEmbeddingsStore, ResourceChunkInfo
-
 from services.llm_provider import LlmProvider
 
 answers_blueprint = Blueprint('answers', __name__)
@@ -38,7 +37,7 @@ def add_answer_request():
         'answer': response
     }), 200
 
-def order_and_sew_info_chunks(info_chunks: List[ResourceChunkInfo]) -> List[ResourceChunkInfo]:
+def order_and_sew_info_chunks(info_chunks: list[ResourceChunkInfo]) -> list[ResourceChunkInfo]:
     # First we need to sort the chunks based on their chunk_number
     sorted_chunks = sorted(
         info_chunks, 
@@ -79,9 +78,29 @@ def find_overlap(str1: str, str2: str) -> str:
             return str2[:i]
     return ""
 
-def build_qa_llm_prompt(question: str, relevant_info_chunks: List[ResourceChunkInfo]) -> str:
-    rearranged_info_chunks = order_and_sew_info_chunks(relevant_info_chunks)
+def build_qa_llm_prompt(question: str, relevant_info_chunks: list[ResourceChunkInfo]) -> str:
+    grouped_chunks = group_chunks_by_resource_id(relevant_info_chunks)
+    context = ""
 
-    context = " ".join([f"<<INFO_{i}>>. {chunk['data']} <</INFO_{i}>>\n" for i, chunk in enumerate(rearranged_info_chunks)])
+    for resource_id, chunks in grouped_chunks.items():
+        resource_name = chunks[0]['resource_name']
 
-    return f"<<CONTEXT>> {context} <</CONTEXT>> <<QUESTION>> {question} <</QUESTION>> Instruction: First, detect the language of the text inside <<QUESTION>> tags. Then, answer the question using only information from the context and nothing else. The answer must be in the same language as the question (no need to mention the language in the answer). If the answer can't be determined from the context or you are not sure explain you don't know."
+        rearranged_info_chunks = order_and_sew_info_chunks(chunks)
+        resource_info = "".join([
+            f"{segment['data']}\n[...]\n"
+            for i, segment in enumerate(rearranged_info_chunks)
+        ])
+
+        context += f"<<SOURCE {resource_name}>>\n{resource_info}\n<</SOURCE {resource_name}>>\n"
+
+
+    return f"<<SOURCES>>\n{context}<</SOURCES>>\n\n<<QUESTION>>\n{question}\n<</QUESTION>>\n\nInstruction: First, detect the language of the text inside <<QUESTION>> tags. Then, answer the question using only information from the sources and nothing else. The answer must be in the same language as the question (no need to mention the language in the answer). If the answer can't be determined from the sources or you are not sure it can, explain you don't know."
+
+
+def group_chunks_by_resource_id(chunks: list[ResourceChunkInfo]) -> dict[str, list[ResourceChunkInfo]]:
+    grouped_chunks = defaultdict(list)
+    for chunk in chunks:
+        resource_id = chunk['resource_id']
+        grouped_chunks[resource_id].append(chunk)
+
+    return grouped_chunks

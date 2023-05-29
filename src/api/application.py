@@ -1,6 +1,4 @@
 
-from flask import Flask
-from flask_socketio import SocketIO
 from .controllers.knowledge_bases import knowledge_bases_blueprint
 from .controllers.answers import answers_blueprint
 from api.server_application import app
