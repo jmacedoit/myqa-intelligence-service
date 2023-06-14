@@ -149,3 +149,8 @@ dmypy.json
 
 # Dynaconf secrets
 .secrets.json
+
+### OSX ###
+*.DS_Store
+.AppleDouble
+.LSOverride

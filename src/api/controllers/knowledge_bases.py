@@ -7,10 +7,11 @@ from flask import request
 from flask import Blueprint
 from langchain.document_loaders import UnstructuredFileLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from config import settings
 
+from config import settings
 from services.embeddings_calculator import EmbeddingsCalculator
 from services.embeddings_store import ResourceChunkInfo, CollectionEmbeddingsStore
+from logger import logger
 
 knowledge_bases_blueprint = Blueprint('knowledge_base', __name__)
 
@@ -39,8 +40,7 @@ def assimilate_resource(knowledge_base_id: str, resource_id: str):
 
     embeddings_calculator = EmbeddingsCalculator();
 
-    embeddings_result = embeddings_calculator.embed_documents(
-        [text.page_content for text in texts])
+    embeddings_result = embeddings_calculator.embed_documents([text.page_content for text in texts])
  
     embeddings_store = CollectionEmbeddingsStore(collection_name=knowledge_base_id)
 
@@ -61,7 +61,7 @@ def assimilate_resource(knowledge_base_id: str, resource_id: str):
     embeddings_store.delete_resource_chunks(resource_id)
     embeddings_store.insert_resource_chunks(rows)
 
-    print(f"Assimilated {resource_name} to knowledge base {knowledge_base_id}")
+    logger.info(f"Assimilated {resource_name} into knowledge base {knowledge_base_id}")
 
     return 'OK', 200
 
@@ -74,6 +74,8 @@ def remove_resource(knowledge_base_id: str, resource_id: str):
     embeddings_store.setup()
     embeddings_store.delete_resource_chunks(resource_id)
 
+    logger.info(f"Removed resource {resource_id} from knowledge base {knowledge_base_id}")
+
     return 'OK', 200
 
 
@@ -83,5 +85,7 @@ def remove_knowledge_base(knowledge_base_id: str):
                                                  host=settings.milvus.host, port=settings.milvus.host)
 
     embeddings_store.drop_collection()
+
+    logger.info(f"Removed knowledge base {knowledge_base_id}")
 
     return 'OK', 200
