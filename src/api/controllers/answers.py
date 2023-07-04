@@ -1,6 +1,7 @@
 
 import json
 from collections import defaultdict
+from typing import Literal, TypedDict, Union, cast
 
 from flask import jsonify, request
 from flask import Blueprint
@@ -9,26 +10,42 @@ from services.embeddings_calculator import EmbeddingsCalculator
 from services.embeddings_store import CollectionEmbeddingsStore, ResourceChunkInfo
 from services.llm_provider import LlmProvider
 
+from logger import logger
+
+
 answers_blueprint = Blueprint('answers', __name__)
 
+class ConversationEntry(TypedDict):
+    sender: Literal['USER, AI_ENGINE']
+    content: str
+
 @answers_blueprint.route('/answer-request', methods=['POST'])
-def add_answer_request():
+async def add_answer_request():
     request_data = request.get_json()
-    knowledge_base_id = request_data['knowledgeBaseId']
+    past_conversation = cast(list[ConversationEntry], request_data['conversation']) if 'conversation' in request_data else None
+    knowledge_base_id = request_data['knowledge_base_id']
     question = request_data['question']
     reference: str = request_data['reference']
+
+    if past_conversation is not None:
+        search_query = await get_search_query_from_conversation(question, past_conversation)
+    else:
+        search_query = question
+
+    logger.info(f"Search query: {search_query}")
 
     embeddings_store = CollectionEmbeddingsStore(collection_name=knowledge_base_id)
     embeddings_store.setup() 
 
     embeddings_calculator = EmbeddingsCalculator()
 
-    question_embeddings = embeddings_calculator.embed_documents([question])
+    search_query_embeddings = embeddings_calculator.embed_documents([search_query])
 
-    similar_chunks_with_similarity = embeddings_store.search_similar_chunks(
-        question_embeddings[0])
+    similar_chunks_with_similarity = embeddings_store.search_similar_chunks(search_query_embeddings[0])
     
-    prompt = build_qa_llm_prompt(question, list(map(lambda x: x[0], similar_chunks_with_similarity)))
+    prompt = build_qa_llm_prompt(question, list(map(lambda x: x[0], similar_chunks_with_similarity)), past_conversation)
+
+    logger.info(f"Prompt: {prompt}")
 
     llm = LlmProvider();
     response = llm.prompt(prompt, reference)
@@ -36,6 +53,28 @@ def add_answer_request():
     return jsonify({
         'answer': response
     }), 200
+
+
+
+def build_search_query_prompt(question: str, past_conversation: list[ConversationEntry]) -> str:
+    prompt = ""
+    prompt += "<<PAST_CONVERSATION>>\n"
+
+    for entry in past_conversation:
+        prompt += f"{entry['sender']}: {entry['content']}\n"
+
+    prompt += "<</PAST_CONVERSATION>>\n\n"
+    prompt += f"<<QUESTION>>\n{question}\n<</QUESTION>>\n\nInstruction: Given the question provided in <<QUESTION>> and the past conversation provided in <<PAST_CONVERSATION>>, what would be the best search query to find the answer to the question? Just return a JSON object obeying this format: {{ \"search_query\": <search_query> }}. If you are not sure just return {{ \"search_query\": null }}"
+
+    return prompt
+
+async def get_search_query_from_conversation(question: str, past_conversation: list[ConversationEntry]) -> str:
+    prompt = build_search_query_prompt(question, past_conversation)
+
+    llm = LlmProvider()
+    response = await llm.async_prompt([prompt])
+
+    return response[0]
 
 def order_and_sew_info_chunks(info_chunks: list[ResourceChunkInfo]) -> list[ResourceChunkInfo]:
     # First we need to sort the chunks based on their chunk_number
@@ -78,7 +117,7 @@ def find_overlap(str1: str, str2: str) -> str:
             return str2[:i]
     return ""
 
-def build_qa_llm_prompt(question: str, relevant_info_chunks: list[ResourceChunkInfo]) -> str:
+def build_qa_llm_prompt(question: str, relevant_info_chunks: list[ResourceChunkInfo],  past_conversation: Union[list[ConversationEntry], None]) -> str:
     grouped_chunks = group_chunks_by_resource_id(relevant_info_chunks)
     context = ""
 
@@ -90,11 +129,19 @@ def build_qa_llm_prompt(question: str, relevant_info_chunks: list[ResourceChunkI
             f"{segment['data']}\n[...]\n"
             for i, segment in enumerate(rearranged_info_chunks)
         ])
-
+        
         context += f"<<SOURCE {resource_name}>>\n{resource_info}\n<</SOURCE {resource_name}>>\n"
 
 
-    return f"<<SOURCES>>\n{context}<</SOURCES>>\n\n<<QUESTION>>\n{question}\n<</QUESTION>>\n\nInstruction: First, detect the language of the text inside <<QUESTION>> tags. Then, answer the question using only information from the sources and nothing else. The answer must be in the same language as the question (no need to mention the language in the answer). If the answer can't be determined from the sources or you are not sure it can, explain you don't know."
+        
+
+    previous_conversation = ""
+    if past_conversation is not None:
+        for entry in past_conversation:
+            previous_conversation += f"{entry['sender']}: {entry['content']}\n"
+
+
+    return f"<<PREVIOUS_CONVERSATION>>\n{previous_conversation}<</PREVIOUS_CONVERSATION>>\n\n<<SOURCES>>\n{context}<</SOURCES>>\n\n<<QUESTION>>\n{question}\n<</QUESTION>>\n\nInstruction: First, detect the language of the text inside <<QUESTION>> tags. Then, answer the question using only information from the sources and nothing else. The answer must be in the same language as the question (no need to mention the language in the answer). If the answer can't be determined from the sources or you are not sure it can, explain you don't know."
 
 
 def group_chunks_by_resource_id(chunks: list[ResourceChunkInfo]) -> dict[str, list[ResourceChunkInfo]]:
