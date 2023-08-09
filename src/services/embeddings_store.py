@@ -1,5 +1,5 @@
 
-from typing import List, TypedDict, cast
+from typing import TypedDict, cast, Optional
 from pymilvus import (
     SearchResult,
     utility,
@@ -17,10 +17,11 @@ PAYLOAD_FIELD = "payload"
 
 
 class ResourceChunkInfo(TypedDict):
+    id: Optional[int]
     resource_name: str
     resource_id: str
     data: str
-    embeddings: List[float]
+    embeddings: list[float]
     payload: str
 
 
@@ -48,13 +49,13 @@ class CollectionEmbeddingsStore:
 
         resource_chunk_schema = CollectionSchema(fields, "Schema for holding resource chunk embeddings")
 
-        self.collection = Collection(self.collection_name, resource_chunk_schema, consistency_level="Strong")
+        self.collection = Collection(self.collection_name, resource_chunk_schema, consistency_level="Bounded")
 
         if create_index:
             try:
                 index = {
                     "index_type": "IVF_FLAT",
-                    "metric_type": "L2",
+                    "metric_type": "IP",
                     "params": {"nlist": 128},
                 }
 
@@ -79,7 +80,7 @@ class CollectionEmbeddingsStore:
 
         self.collection.delete(f"{ID_FIELD} in [{','.join([str(id) for id in ids_to_delete])}]")  # type: ignore
 
-    def insert_resource_chunks(self, entities: List[ResourceChunkInfo]):
+    def insert_resource_chunks(self, entities: list[ResourceChunkInfo]):
         if self.collection is None:
             raise ValueError("Collection not created.")
 
@@ -95,7 +96,7 @@ class CollectionEmbeddingsStore:
 
         self.collection.flush()
 
-    def search_similar_chunks(self, query_vectors: List[float], limit: int = 5) -> List[tuple[ResourceChunkInfo, float]]:
+    def search_similar_chunks(self, query_vectors: list[float], limit: int = 5) -> list[tuple[ResourceChunkInfo, float]]:
         self.collection.load()
 
         if self.collection is None:
@@ -105,16 +106,38 @@ class CollectionEmbeddingsStore:
         result = self.collection.search(
             [query_vectors],
             "embeddings",
-            {"metric_type": "L2", "params": { "nprobe": 10 }},
+            {"metric_type": "IP", "params": {"nprobe": 10}},
             limit=limit,
-            output_fields=[ID_FIELD, DATA_FIELD, RESOURCE_ID_FIELD, RESOURCE_NAME_FIELD, PAYLOAD_FIELD]
+            output_fields=[ID_FIELD, DATA_FIELD, RESOURCE_ID_FIELD, RESOURCE_NAME_FIELD, PAYLOAD_FIELD],
+            consistency_level="Bounded"
         )
 
         result = cast(SearchResult, result)
 
         return [(cast(ResourceChunkInfo, {
+            ID_FIELD: r.entity.id,
             RESOURCE_NAME_FIELD: r.entity.resource_name,
             RESOURCE_ID_FIELD: r.entity.resource_id,
             DATA_FIELD: r.entity.data,
             PAYLOAD_FIELD: r.entity.payload
-        }), 1 - cast(float, r.distance)) for r in result[0]]
+        }), cast(float, r.distance)) for r in result[0]]
+
+    def get_chunks_data(self, chunk_ids: list[str]) -> list[ResourceChunkInfo]:
+        self.collection.load()
+
+        if self.collection is None:
+            raise ValueError(
+                "Collection not created. Please call create_collection() method first.")
+
+        result = self.collection.query(
+            expr=f"{ID_FIELD} in [{','.join([str(id) for id in chunk_ids])}]",
+            output_fields=[ID_FIELD, DATA_FIELD, RESOURCE_ID_FIELD, RESOURCE_NAME_FIELD, PAYLOAD_FIELD]
+        )
+
+        return [cast(ResourceChunkInfo, {
+            ID_FIELD: r[ID_FIELD],
+            RESOURCE_NAME_FIELD: r[RESOURCE_NAME_FIELD],
+            RESOURCE_ID_FIELD: r[RESOURCE_ID_FIELD],
+            DATA_FIELD: r[DATA_FIELD],
+            PAYLOAD_FIELD: r[PAYLOAD_FIELD]
+        }) for r in result]
