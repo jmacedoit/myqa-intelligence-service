@@ -6,13 +6,20 @@
         "database": {
             "resource_name_size": 128,
             "resource_id_size": 64,
-            "data_size": 2048,
-            "embedding_size": 1536,
+            "data_size": 2148,
+            "embedding_size": 384,
             "payload_size": 1024
         },
+        "answers": {
+            "minimum_trustable_similarity": 0.0
+        },
         "chunking": {
-            "chunk_size": 2048,
-            "chunk_overlap": 256
+            "chunk_size": 1300,
+            "chunk_overlap": 250
+        },
+        "limits": {
+            "max_total_chunks": 1000,
+            "max_total_characters": 5000000
         },
         "milvus": {
             "host": "localhost",

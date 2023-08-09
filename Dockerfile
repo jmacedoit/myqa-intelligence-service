@@ -15,6 +15,8 @@ RUN pip install poetry && \
     poetry config virtualenvs.create false && \
     poetry install --no-root --no-dev
 
+RUN pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+
 # Copy the rest of the application code to the working directory
 COPY . .
 

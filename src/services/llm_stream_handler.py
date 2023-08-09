@@ -3,6 +3,7 @@ from typing import Any, Dict, List, Union
 from langchain.callbacks.base import BaseCallbackHandler
 from langchain.schema import AgentAction, AgentFinish, LLMResult
 from api.server_application import socketio
+from logger import logger
 
 
 class LlmStreamHandler(BaseCallbackHandler):
